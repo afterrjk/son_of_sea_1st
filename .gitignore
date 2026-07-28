@@ -1,0 +1,18 @@
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+venv/
+
+# 本地密钥和编辑器配置
+.env
+.vscode/
+.idea/
+
+# ChromaDB 本地持久化数据（可由知识库重新生成）
+data/chroma_db/
+chroma_db/
+
+# 临时测试文件
+test_*.py
