@@ -58,6 +58,20 @@ uvicorn main:app --reload
 - 接口文档：<http://127.0.0.1:8000/docs>
 - 健康检查：<http://127.0.0.1:8000/health>
 
+## 公网运行（Cloud Studio / 云服务器）
+
+公网环境必须监听 `0.0.0.0`，不能使用仅本机可访问的 `127.0.0.1`：
+
+```bash
+pip install -r requirements.txt
+python -m uvicorn main:app --host 0.0.0.0 --port 8001
+```
+
+项目附带 `Dockerfile` 和 `.devcontainer/devcontainer.json`，可用于 Cloud Studio
+导入后的自动安装和 8001 端口转发。请在 Cloud Studio 的环境变量/密钥设置中配置
+`DEEPSEEK_API_KEY`，不要上传 `.env`。Cloud Studio 预览地址适合比赛演示，长期公网服务
+建议使用腾讯云轻量应用服务器并在 Nginx 后配置 HTTPS。
+
 > 说明：启动时若检测到向量库未初始化，会自动从 `data/knowledge_base.json` 入库，无需手动执行初始化脚本。
 
 ## 知识库与 RAG
