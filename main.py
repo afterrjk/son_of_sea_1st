@@ -280,7 +280,14 @@ async def index() -> FileResponse:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    # 健康检查不触发模型请求，但会告诉演示人员本地 RAG 是否已初始化。
+    rag_status = "ready"
+    try:
+        retriever = __import__("app.retrieval", fromlist=["get_retriever"]).get_retriever()
+        rag_status = "ready" if retriever.is_initialized() else "not_initialized"
+    except Exception:
+        rag_status = "unavailable"
+    return {"status": "ok", "model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"), "rag": rag_status}
 
 # ===================================================================
 # 接口一：安全问答 /chat（SSE 流式）
@@ -368,8 +375,19 @@ async def analyze_hazard(request: HazardRequest) -> JSONResponse:
     except DeepSeekAPIError as exc:
         logger.error(f"/analyze_hazard DeepSeek 错误：{exc}")
         return JSONResponse(
-            status_code=502,
-            content={"error": str(exc), "disclaimer": "AI分析失败，请咨询现场安全员。"},
+            status_code=200,
+            content={
+                "fallback": True,
+                "error": str(exc),
+                "risks": [{
+                    "category": "需要现场复核",
+                    "description": "AI服务暂时不可用，无法完成自动风险分级。",
+                    "risk_level": "中",
+                    "suggestion": "立即停止可能造成伤害的作业，设置警戒并报告现场安全员逐项检查。",
+                }],
+                "summary": "这是基础安全兜底提示，不代表对现场风险的最终判断。",
+                "disclaimer": "AI服务异常。请以现场安全员、施工方案和现行规范为准。",
+            },
         )
     except Exception as exc:
         logger.exception(f"/analyze_hazard 未知错误")
@@ -453,8 +471,22 @@ async def generate_lesson(request: LessonRequest) -> JSONResponse:
     except DeepSeekAPIError as exc:
         logger.error(f"/generate_lesson DeepSeek 错误：{exc}")
         return JSONResponse(
-            status_code=502,
-            content={"error": str(exc), "trade": trade},
+            status_code=200,
+            content={
+                "fallback": True,
+                "error": str(exc),
+                "trade": trade,
+                "intro": "AI服务暂时不可用，先提供一份班前复习提纲。",
+                "core_skills": ["作业前检查工具和防护用品", "按交底要求进行操作", "发现异常立即停工报告"],
+                "steps": [
+                    {"step": 1, "title": "班前检查", "detail": "确认作业面、工具、临边洞口和个人防护用品状态。"},
+                    {"step": 2, "title": "按方案作业", "detail": "严格执行施工方案和安全技术交底，不擅自改变工艺。"},
+                    {"step": 3, "title": "收工复查", "detail": "清理现场，切断设备电源，向班组长报告异常。"},
+                ],
+                "safety_notes": ["严禁违章指挥、违章作业和冒险作业", "不清楚时先停下来询问现场安全员"],
+                "common_mistakes": ["未检查工具就开工", "为赶进度省略防护措施"],
+                "disclaimer": "AI服务异常。以上为基础复习提纲，必须以现场交底和专业规范为准。",
+            },
         )
     except Exception as exc:
         logger.exception(f"/generate_lesson 未知错误")

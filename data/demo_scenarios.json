@@ -1,0 +1,37 @@
+[
+  {
+    "id": "hazard-edge-protection",
+    "module": "hazard",
+    "title": "二层临边防护缺失",
+    "prompt": "模拟场景：3号楼二层东侧临边没有防护栏杆，工友正在附近搬运材料。",
+    "expected_focus": ["临边防护缺失", "高处坠落风险", "停止附近作业", "设置警戒并报告安全员"]
+  },
+  {
+    "id": "hazard-electric-box",
+    "module": "hazard",
+    "title": "配电箱旁有积水",
+    "prompt": "模拟场景：现场配电箱门没有关闭，箱体旁边有积水，电线从水面附近经过。",
+    "expected_focus": ["触电风险", "禁止带电靠近", "切断电源", "通知电工复查"]
+  },
+  {
+    "id": "emergency-electric-shock",
+    "module": "emergency",
+    "title": "人员触电倒地",
+    "prompt": "模拟场景：工友疑似触电倒地，旁边是未关闭的配电箱。",
+    "expected_focus": ["先断电", "不得直接接触伤者", "拨打120", "报告现场负责人"]
+  },
+  {
+    "id": "emergency-heatstroke",
+    "module": "emergency",
+    "title": "高温中暑",
+    "prompt": "模拟场景：工友在高温环境下头晕、出汗异常，意识逐渐模糊。",
+    "expected_focus": ["转移到阴凉通风处", "呼叫现场救援", "意识不清及时拨打120"]
+  },
+  {
+    "id": "lesson-scaffold",
+    "module": "course",
+    "title": "架子工临边防护微课",
+    "trade": "架子工",
+    "prompt": "临边防护和脚手架作业前检查"
+  }
+]

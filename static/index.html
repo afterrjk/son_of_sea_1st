@@ -440,6 +440,20 @@
     }
     .result-title svg { width: 18px; height: 18px; stroke-width: 2; }
 
+    .fallback-banner {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 10px;
+      border: 1px solid #e7c56a;
+      border-radius: 5px;
+      background: var(--amber-soft);
+      color: #73520a;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .fallback-banner svg { width: 17px; height: 17px; flex: 0 0 17px; }
+
     .risk-card {
       display: grid;
       gap: 6px;
@@ -1092,6 +1106,7 @@
     let activeModule = 'qa';
     let activeController = null;
     let messageIdCounter = 0;
+    const SESSION_STORAGE_KEY = 'zhuan-sessions-v1';
 
     /* ------------------------------------------------------------------ */
     /*  DOM Refs                                                           */
@@ -1116,6 +1131,27 @@
     const toastContainer = $('#toast-container');
     const moduleTitle = $('#module-title');
     const moduleSubtitle = $('#module-subtitle');
+
+    function restoreSessions() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '{}');
+        Object.keys(MODULES).forEach(key => {
+          if (Array.isArray(saved[key])) sessions[key].push(...saved[key].slice(-40));
+        });
+        const ids = Object.values(sessions).flat().map(message => Number(message.id)).filter(Number.isFinite);
+        messageIdCounter = ids.length ? Math.max(...ids) : 0;
+      } catch {
+        // 浏览器禁用存储或旧数据损坏时，仍可正常使用临时会话。
+      }
+    }
+
+    function persistSessions() {
+      try {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+      } catch {
+        // 存储空间不足不影响当前页面的对话功能。
+      }
+    }
 
     /* ------------------------------------------------------------------ */
     /*  Init                                                               */
@@ -1333,6 +1369,12 @@
       return 'low';
     }
 
+    function fallbackBanner(data) {
+      return data && data.fallback
+        ? '<div class="fallback-banner"><i data-lucide="info" aria-hidden="true"></i>AI 暂时不可用，以下为基础安全兜底提示</div>'
+        : '';
+    }
+
     function renderHazardHtml(data) {
       const risks = Array.isArray(data.risks) ? data.risks : [];
       const cards = risks.map(r => `
@@ -1348,6 +1390,7 @@
       return `
         <div class="result-box">
           <div class="result-title"><i data-lucide="scan-search" aria-hidden="true"></i>隐患识别结果</div>
+          ${fallbackBanner(data)}
           ${cards || '<p style="color:var(--muted)">未能解析出隐患条目。</p>'}
           ${data.summary ? `<div class="risk-desc"><strong>总体评估：</strong>${escapeHtml(data.summary)}</div>` : ''}
           <div class="disclaimer-note">${escapeHtml(data.disclaimer || '以上分析仅供参考，最终以现场安全员和专业规范为准。')}</div>
@@ -1375,6 +1418,7 @@
       return `
         <div class="result-box">
           <div class="result-title"><i data-lucide="book-open" aria-hidden="true"></i>${escapeHtml(data.trade || '')} · 技能微课</div>
+          ${fallbackBanner(data)}
           ${data.intro ? `<div class="lesson-intro">${escapeHtml(data.intro)}</div>` : ''}
           ${skillsHtml ? `<div class="block-label"><i data-lucide="target" aria-hidden="true"></i>核心技能点</div>${skillsHtml}` : ''}
           ${stepsHtml ? `<div class="block-label"><i data-lucide="list-ordered" aria-hidden="true"></i>操作步骤</div>${stepsHtml}` : ''}
@@ -1411,6 +1455,7 @@
       return `
         <div class="result-box">
           <div class="result-title"><i data-lucide="siren" aria-hidden="true"></i>应急处置指南</div>
+          ${fallbackBanner(data)}
           ${data.situation ? `<div class="lesson-intro"><strong>情况：</strong>${escapeHtml(data.situation)}</div>` : ''}
           ${actionsHtml ? `<div class="block-label"><i data-lucide="list-ordered" aria-hidden="true"></i>立即行动（按顺序）</div>${actionsHtml}` : ''}
           ${dontHtml ? `<div class="block-label"><i data-lucide="ban" aria-hidden="true"></i>禁忌事项</div>${dontHtml}` : ''}
@@ -1512,6 +1557,7 @@
 
           if (!aiMsg.content) { aiMsg.content = '模型没有返回内容，请稍后再试。'; aiMsg.error = true; }
           aiMsg.status = 'done';
+          persistSessions();
           updateAssistantMsg(moduleKey, aiMsg);
         } else {
           /* --- 结构化接口 JSON --- */
@@ -1527,6 +1573,7 @@
           aiMsg.html = renderStructured(moduleKey, data);
           aiMsg.content = '已生成结构化结果。';
           aiMsg.status = 'done';
+          persistSessions();
           updateAssistantMsg(moduleKey, aiMsg);
         }
       } catch (err) {
@@ -1537,6 +1584,7 @@
           aiMsg.error = true;
         }
         aiMsg.status = 'done';
+        persistSessions();
         updateAssistantMsg(moduleKey, aiMsg);
       } finally {
         if (activeController === controller) {
@@ -1589,6 +1637,7 @@
     clearBtn.addEventListener('click', () => {
       if (activeController) abortRequest();
       sessions[activeModule].length = 0;
+      persistSessions();
       setBusy(false);
       renderConversation();
       updateCharCounter();
@@ -1617,6 +1666,7 @@
     /*  Bootstrap                                                          */
     /* ------------------------------------------------------------------ */
     input.placeholder = MODULES[activeModule].placeholder;
+    restoreSessions();
     renderQuickActions();
     renderConversation();
     updateCharCounter();
