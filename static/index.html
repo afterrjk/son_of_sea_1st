@@ -424,6 +424,122 @@
     }
     .bubble pre code { padding: 0; background: none; color: inherit; }
 
+    /* --- Structured result (risk / lesson / emergency) --- */
+    .result-box {
+      display: grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .result-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--brand-800);
+    }
+    .result-title svg { width: 18px; height: 18px; stroke-width: 2; }
+
+    .risk-card {
+      display: grid;
+      gap: 6px;
+      padding: 12px 14px;
+      border: 1px solid var(--line-soft);
+      border-left: 4px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface-hover);
+      animation: messageIn 0.3s ease-out;
+    }
+    .risk-card.high { border-left-color: #dc2626; }
+    .risk-card.mid { border-left-color: #f59e0b; }
+    .risk-card.low { border-left-color: #16a34a; }
+
+    .risk-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .risk-cat { font-weight: 800; font-size: 14px; color: var(--ink); }
+    .risk-badge {
+      flex-shrink: 0;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .risk-badge.high { background: var(--danger-bg); color: var(--danger); }
+    .risk-badge.mid { background: #fef3c7; color: #b45309; }
+    .risk-badge.low { background: #dcfce7; color: #15803d; }
+
+    .risk-desc { font-size: 14px; color: var(--ink-soft); line-height: 1.7; }
+    .risk-suggest {
+      margin-top: 2px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--brand-50);
+      color: var(--brand-800);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .lesson-intro { font-size: 14px; color: var(--ink-soft); line-height: 1.7; }
+    .block-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+    .block-label svg { width: 16px; height: 16px; stroke-width: 2; color: var(--brand-600); }
+    .block-list { margin: 4px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.8; color: var(--ink-soft); }
+    .block-list li { margin: 2px 0; }
+
+    .step-list { display: grid; gap: 8px; margin-top: 6px; }
+    .step-item {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+    .step-num {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--brand-100);
+      color: var(--brand-800);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .step-body .step-title { font-weight: 800; font-size: 14px; color: var(--ink); }
+    .step-body .step-detail { font-size: 13px; color: var(--muted); line-height: 1.7; }
+
+    .callout {
+      display: flex;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .callout.warn { background: var(--amber-light); color: #4d3d1a; }
+    .callout.danger { background: var(--danger-soft); color: var(--danger); }
+    .callout svg { width: 18px; height: 18px; stroke-width: 2; flex-shrink: 0; margin-top: 1px; }
+
+    .disclaimer-note {
+      padding: 10px 12px;
+      border: 1px dashed #c8b26a;
+      border-radius: var(--radius-sm);
+      background: #fffdf5;
+      color: #6b5a1e;
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+
     /* --- Thinking indicator --- */
     .thinking-dots {
       display: flex;
@@ -1087,7 +1203,7 @@
         bubble.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>';
         bubble.setAttribute('aria-label', 'AI 思考中');
       } else if (msg.role === 'assistant') {
-        bubble.innerHTML = renderMd(msg.content);
+        bubble.innerHTML = msg.html || renderMd(msg.content);
       } else {
         bubble.textContent = msg.content;
       }
@@ -1114,7 +1230,7 @@
       if (!wrapper) return;
       wrapper.classList.toggle('error', Boolean(msg.error));
       const bubble = wrapper.querySelector('.bubble');
-      bubble.innerHTML = renderMd(msg.content);
+      bubble.innerHTML = msg.html || renderMd(msg.content);
       bubble.removeAttribute('aria-label');
       refreshLucide();
       scrollBottom();
@@ -1200,8 +1316,126 @@
     }
 
     /* ------------------------------------------------------------------ */
+    /*  Structured Renderers                                               */
+    /* ------------------------------------------------------------------ */
+    function riskBadge(level) {
+      const lv = String(level || '').trim();
+      if (lv.includes('高')) return '<span class="risk-badge high">高风险</span>';
+      if (lv.includes('中')) return '<span class="risk-badge mid">中风险</span>';
+      if (lv.includes('低')) return '<span class="risk-badge low">低风险</span>';
+      return `<span class="risk-badge mid">${escapeHtml(level || '未知')}</span>`;
+    }
+
+    function riskLevelClass(level) {
+      const lv = String(level || '').trim();
+      if (lv.includes('高')) return 'high';
+      if (lv.includes('中')) return 'mid';
+      return 'low';
+    }
+
+    function renderHazardHtml(data) {
+      const risks = Array.isArray(data.risks) ? data.risks : [];
+      const cards = risks.map(r => `
+        <div class="risk-card ${riskLevelClass(r.risk_level)}">
+          <div class="risk-head">
+            <span class="risk-cat">${escapeHtml(r.category || '未分类隐患')}</span>
+            ${riskBadge(r.risk_level)}
+          </div>
+          <div class="risk-desc">${escapeHtml(r.description || '')}</div>
+          <div class="risk-suggest"><strong>处置建议：</strong>${escapeHtml(r.suggestion || '')}</div>
+        </div>`).join('');
+
+      return `
+        <div class="result-box">
+          <div class="result-title"><i data-lucide="scan-search" aria-hidden="true"></i>隐患识别结果</div>
+          ${cards || '<p style="color:var(--muted)">未能解析出隐患条目。</p>'}
+          ${data.summary ? `<div class="risk-desc"><strong>总体评估：</strong>${escapeHtml(data.summary)}</div>` : ''}
+          <div class="disclaimer-note">${escapeHtml(data.disclaimer || '以上分析仅供参考，最终以现场安全员和专业规范为准。')}</div>
+        </div>`;
+    }
+
+    function renderLessonHtml(data) {
+      const skills = Array.isArray(data.core_skills) ? data.core_skills : [];
+      const steps = Array.isArray(data.steps) ? data.steps : [];
+      const notes = Array.isArray(data.safety_notes) ? data.safety_notes : [];
+      const mistakes = Array.isArray(data.common_mistakes) ? data.common_mistakes : [];
+
+      const skillsHtml = skills.length ? `<ul class="block-list">${skills.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul>` : '';
+      const stepsHtml = steps.length ? `<div class="step-list">${steps.map(s => `
+        <div class="step-item">
+          <span class="step-num">${Number(s.step) || '?'}</span>
+          <div class="step-body">
+            <div class="step-title">${escapeHtml(s.title || '')}</div>
+            ${s.detail ? `<div class="step-detail">${escapeHtml(s.detail)}</div>` : ''}
+          </div>
+        </div>`).join('')}</div>` : '';
+      const notesHtml = notes.length ? `<ul class="block-list">${notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : '';
+      const mistakesHtml = mistakes.length ? `<ul class="block-list">${mistakes.map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul>` : '';
+
+      return `
+        <div class="result-box">
+          <div class="result-title"><i data-lucide="book-open" aria-hidden="true"></i>${escapeHtml(data.trade || '')} · 技能微课</div>
+          ${data.intro ? `<div class="lesson-intro">${escapeHtml(data.intro)}</div>` : ''}
+          ${skillsHtml ? `<div class="block-label"><i data-lucide="target" aria-hidden="true"></i>核心技能点</div>${skillsHtml}` : ''}
+          ${stepsHtml ? `<div class="block-label"><i data-lucide="list-ordered" aria-hidden="true"></i>操作步骤</div>${stepsHtml}` : ''}
+          ${notesHtml ? `<div class="block-label"><i data-lucide="shield-alert" aria-hidden="true"></i>安全注意事项</div>${notesHtml}` : ''}
+          ${mistakesHtml ? `<div class="block-label"><i data-lucide="alert-triangle" aria-hidden="true"></i>常见错误</div>${mistakesHtml}` : ''}
+          <div class="disclaimer-note">${escapeHtml(data.disclaimer || '以上内容基于通用规范，具体操作以现场施工方案和安全技术交底为准。')}</div>
+        </div>`;
+    }
+
+    function renderEmergencyHtml(data) {
+      const actions = Array.isArray(data.immediate_actions) ? data.immediate_actions : [];
+      const dont = Array.isArray(data.dont_do) ? data.dont_do : [];
+      const w = data.when_to_call || {};
+
+      const actionsHtml = actions.length ? `<div class="step-list">${actions.map(a => `
+        <div class="step-item">
+          <span class="step-num">${Number(a.order) || '?'}</span>
+          <div class="step-body">
+            <div class="step-title">${escapeHtml(a.action || '')}</div>
+            ${a.detail ? `<div class="step-detail">${escapeHtml(a.detail)}</div>` : ''}
+          </div>
+        </div>`).join('')}</div>` : '';
+
+      const dontHtml = dont.length ? `<ul class="block-list">${dont.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>` : '';
+
+      const callTexts = [];
+      if (w.call_120) callTexts.push('立即拨打 <strong>120</strong>（急救）');
+      if (w.call_119) callTexts.push('立即拨打 <strong>119</strong>（消防）');
+      const callHtml = callTexts.length ? `
+        <div class="callout danger"><i data-lucide="phone-call" aria-hidden="true"></i>
+          <div>${callTexts.join('；')}。${escapeHtml(w.reason || '')}</div>
+        </div>` : '';
+
+      return `
+        <div class="result-box">
+          <div class="result-title"><i data-lucide="siren" aria-hidden="true"></i>应急处置指南</div>
+          ${data.situation ? `<div class="lesson-intro"><strong>情况：</strong>${escapeHtml(data.situation)}</div>` : ''}
+          ${actionsHtml ? `<div class="block-label"><i data-lucide="list-ordered" aria-hidden="true"></i>立即行动（按顺序）</div>${actionsHtml}` : ''}
+          ${dontHtml ? `<div class="block-label"><i data-lucide="ban" aria-hidden="true"></i>禁忌事项</div>${dontHtml}` : ''}
+          ${callHtml}
+          <div class="disclaimer-note">${escapeHtml(data.disclaimer || '本指南仅供紧急参考，必须以现场安全员和医疗专业人员指导为准。')}</div>
+        </div>`;
+    }
+
+    function renderStructured(moduleKey, data) {
+      if (moduleKey === 'hazard') return renderHazardHtml(data);
+      if (moduleKey === 'course') return renderLessonHtml(data);
+      if (moduleKey === 'emergency') return renderEmergencyHtml(data);
+      return renderMd(typeof data === 'string' ? data : JSON.stringify(data));
+    }
+
+    /* ------------------------------------------------------------------ */
     /*  Ask                                                                */
     /* ------------------------------------------------------------------ */
+    function buildApiRequest(moduleKey, cleanQ) {
+      if (moduleKey === 'course') return { url: '/generate_lesson', body: { trade: workerSelect.value } };
+      if (moduleKey === 'hazard') return { url: '/analyze_hazard', body: { description: cleanQ } };
+      if (moduleKey === 'emergency') return { url: '/emergency', body: { situation: cleanQ } };
+      return null; // qa 走 /chat SSE
+    }
+
     async function ask(question) {
       const cleanQ = question.trim();
       if (!cleanQ) {
@@ -1226,7 +1460,7 @@
         .map(({ role, content }) => ({ role, content }));
 
       const userMsg = { id: ++messageIdCounter, role: 'user', content: cleanQ, status: 'done' };
-      const aiMsg = { id: ++messageIdCounter, role: 'assistant', content: '', status: 'pending', error: false };
+      const aiMsg = { id: ++messageIdCounter, role: 'assistant', content: '', html: '', status: 'pending', error: false };
       session.push(userMsg, aiMsg);
       renderConversation();
 
@@ -1239,43 +1473,62 @@
       activeController = controller;
 
       try {
-        const resp = await fetch('/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({ message: buildPrompt(cleanQ, moduleKey), history })
-        });
+        const api = buildApiRequest(moduleKey, cleanQ);
 
-        if (!resp.ok || !resp.body) throw new Error(`请求失败（HTTP ${resp.status}）`);
+        if (!api) {
+          /* --- /chat SSE 流式 --- */
+          const resp = await fetch('/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({ message: buildPrompt(cleanQ, moduleKey), history })
+          });
+          if (!resp.ok || !resp.body) throw new Error(`请求失败（HTTP ${resp.status}）`);
 
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
 
-        while (true) {
-          const { value, done } = await reader.read();
-          buf += decoder.decode(value || new Uint8Array(), { stream: !done });
-          const events = buf.split(/\r?\n\r?\n/);
-          buf = events.pop() || '';
+          while (true) {
+            const { value, done } = await reader.read();
+            buf += decoder.decode(value || new Uint8Array(), { stream: !done });
+            const events = buf.split(/\r?\n\r?\n/);
+            buf = events.pop() || '';
 
-          for (const raw of events) {
-            const lines = raw.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim());
-            if (!lines.length) continue;
-            const evt = JSON.parse(lines.join('\n'));
-            if (evt.type === 'delta') {
-              aiMsg.status = 'streaming';
-              aiMsg.content += evt.content;
-              updateAssistantMsg(moduleKey, aiMsg);
-            } else if (evt.type === 'error') {
-              throw new Error(evt.message);
+            for (const raw of events) {
+              const lines = raw.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim());
+              if (!lines.length) continue;
+              const evt = JSON.parse(lines.join('\n'));
+              if (evt.type === 'delta') {
+                aiMsg.status = 'streaming';
+                aiMsg.content += evt.content;
+                updateAssistantMsg(moduleKey, aiMsg);
+              } else if (evt.type === 'error') {
+                throw new Error(evt.message);
+              }
             }
+            if (done) break;
           }
-          if (done) break;
-        }
 
-        if (!aiMsg.content) { aiMsg.content = '模型没有返回内容，请稍后再试。'; aiMsg.error = true; }
-        aiMsg.status = 'done';
-        updateAssistantMsg(moduleKey, aiMsg);
+          if (!aiMsg.content) { aiMsg.content = '模型没有返回内容，请稍后再试。'; aiMsg.error = true; }
+          aiMsg.status = 'done';
+          updateAssistantMsg(moduleKey, aiMsg);
+        } else {
+          /* --- 结构化接口 JSON --- */
+          const resp = await fetch(api.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify(api.body)
+          });
+          const data = await resp.json().catch(() => null);
+          if (!resp.ok) throw new Error((data && data.error) || `请求失败（HTTP ${resp.status}）`);
+
+          aiMsg.html = renderStructured(moduleKey, data);
+          aiMsg.content = '已生成结构化结果。';
+          aiMsg.status = 'done';
+          updateAssistantMsg(moduleKey, aiMsg);
+        }
       } catch (err) {
         if (err.name === 'AbortError') {
           aiMsg.content = aiMsg.content || '回答已停止。';
