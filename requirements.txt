@@ -4,5 +4,6 @@ httpx>=0.27.0,<1.0.0
 python-dotenv>=1.0.1,<2.0.0
 pydantic>=2.8.0,<3.0.0
 chromadb>=0.5.5,<2.0.0
-sentence-transformers>=3.0.1,<6.0.0
+# 5.x 加载旧格式(all-MiniLM-L6-v2, ST 2.0) 会报 Pooling embedding_dimension 缺失，故锁 4.x
+sentence-transformers>=4.0.0,<5.0.0
 

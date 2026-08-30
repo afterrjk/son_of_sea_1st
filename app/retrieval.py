@@ -23,6 +23,8 @@ DATA_DIR = BASE_DIR / "data"
 CHROMA_DIR = BASE_DIR / "data" / "chroma_db"
 
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+# 优先使用随项目打包的本地模型目录，避免在离线/受限网络环境访问 HuggingFace
+LOCAL_MODEL_DIR = BASE_DIR / "models" / "all-MiniLM-L6-v2"
 COLLECTION_NAME = "zhuan_safety_knowledge"
 
 
@@ -47,9 +49,12 @@ class KnowledgeRetriever:
 
     @property
     def embedding_model(self) -> SentenceTransformer:
-        """延迟加载向量模型，避免 import 时下载模型。"""
+        """延迟加载向量模型，优先加载本地打包模型，避免联网下载。"""
         if self._embedding_model is None:
-            self._embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+            if LOCAL_MODEL_DIR.exists():
+                self._embedding_model = SentenceTransformer(str(LOCAL_MODEL_DIR))
+            else:
+                self._embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
         return self._embedding_model
 
     @property
