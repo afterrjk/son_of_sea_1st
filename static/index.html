@@ -2,8 +2,11 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0a2e27">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>筑安 · 工地安全智能助手</title>
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
@@ -56,16 +59,20 @@
 
     body {
       overflow: hidden;
+      overscroll-behavior: none;
       background: var(--paper);
       color: var(--ink);
       font-family: "Microsoft YaHei", "PingFang SC", -apple-system, system-ui, sans-serif;
       font-size: 16px;
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
     }
 
     button, textarea, select { font: inherit; }
     button { cursor: pointer; border: none; background: none; }
+    button, a, select { touch-action: manipulation; }
+    textarea { -webkit-appearance: none; appearance: none; }
     button:focus-visible, textarea:focus-visible, select:focus-visible {
       outline: 2px solid var(--amber);
       outline-offset: 2px;
@@ -80,6 +87,7 @@
     /*  App Layout                                                        */
     /* ================================================================= */
     .app {
+      height: 100vh;
       height: 100dvh;
       display: grid;
       grid-template-columns: 264px minmax(0, 1fr);
@@ -292,6 +300,8 @@
     .conversation {
       overflow-y: auto;
       scroll-behavior: smooth;
+      overscroll-behavior-y: contain;
+      -webkit-overflow-scrolling: touch;
     }
 
     .conversation-inner {
@@ -634,6 +644,7 @@
       overflow-x: auto;
       padding: 2px 1px 6px;
       scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
     }
     .quick-actions::-webkit-scrollbar { display: none; }
 
@@ -829,7 +840,7 @@
     /*  Responsive                                                        */
     /* ================================================================= */
     @media (max-width: 800px) {
-      body { overflow: auto; }
+      body { overflow: hidden; }
 
       .app {
         height: 100dvh;
@@ -849,6 +860,7 @@
       .brand-logo svg { width: 20px; height: 20px; }
       .brand-text h1 { font-size: 20px; }
       .brand-text p, .nav-label, .nav-hint, .sidebar-footer { display: none; }
+      .nav-section { display: none; }
 
       .module-nav {
         display: flex;
@@ -856,11 +868,13 @@
         overflow-x: auto;
         padding: 8px 10px;
         scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
       }
 
       .nav-button {
         width: auto;
         min-width: 90px;
+        min-height: 44px;
         flex: 0 0 auto;
         justify-content: center;
         padding: 10px 12px;
@@ -870,10 +884,11 @@
       .nav-button.active { box-shadow: inset 0 -3px 0 var(--amber), 0 2px 8px rgb(0 0 0 / 20%); }
       .nav-button.active::before { display: none; }
 
-      .topbar { padding: 12px 14px; }
+      .topbar { padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 12px; }
       .page-title h2 { font-size: 18px; }
       .page-title .subtitle { display: none; }
       .btn-icon.tooltip-wrapper::after { display: none; }
+      .btn-icon { width: 44px; height: 44px; }
 
       .conversation-inner { padding: 16px 12px 12px; gap: 12px; }
       .welcome { padding: 24px 8px; }
@@ -885,24 +900,47 @@
       .msg-avatar.ai svg { width: 17px; height: 17px; }
       .bubble { max-width: calc(100% - 44px); padding: 12px 14px; font-size: 14px; }
 
-      .composer-inner { padding: 10px 10px 8px; }
+      .composer-inner { padding: 10px 10px calc(8px + env(safe-area-inset-bottom, 0px)); }
       .controls-row { flex-direction: column; align-items: stretch; gap: 6px; }
-      .quick-btn { height: 30px; font-size: 12px; padding: 0 12px; }
+      .quick-btn { height: 34px; font-size: 12px; padding: 0 12px; }
       .composer { padding: 4px; }
-      .composer-btn { width: 38px; height: 38px; }
-      #message-input { min-height: 38px; font-size: 14px; padding: 6px 2px; }
+      .composer-btn { width: 44px; height: 44px; }
+      #message-input { min-height: 40px; font-size: 16px; padding: 8px 4px; }
 
-      .statusbar { padding: 6px 12px; font-size: 10px; }
+      .statusbar { padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px)); font-size: 10px; }
       .status-help { display: none; }
 
       .toast-container { top: auto; bottom: 12px; right: 10px; left: 10px; }
       .toast { font-size: 13px; }
+
+      /* 触屏设备去除 hover 粘滞效果 */
+      .btn-icon:hover { background: var(--surface); }
+      .quick-btn:hover { background: var(--surface); border-color: var(--line); }
+      .composer-btn:hover { background: transparent; color: var(--muted); }
+      .nav-button:hover { background: transparent; }
+      .bubble:hover { box-shadow: var(--shadow-sm); }
     }
 
     @media (max-width: 420px) {
       .nav-button { min-width: 72px; padding: 8px 10px; }
       .nav-button .nav-text { display: none; }
       .composer-meta { flex-direction: column; align-items: flex-start; gap: 2px; }
+    }
+
+    /* 横屏且高度受限（如手机横持）时压缩顶部，给对话区留出空间 */
+    @media (max-height: 520px) and (orientation: landscape) {
+      .brand { padding: 8px 14px; }
+      .brand-logo { width: 32px; height: 32px; }
+      .brand-logo svg { width: 18px; height: 18px; }
+      .brand-text h1 { font-size: 17px; }
+      .module-nav { padding: 4px 8px; }
+      .nav-button { min-height: 40px; padding: 6px 10px; }
+      .topbar { padding: 8px 14px; }
+      .welcome { padding: 12px 8px; }
+      .welcome-icon { width: 44px; height: 44px; margin-bottom: 12px; }
+      .welcome-icon svg { width: 22px; height: 22px; }
+      .welcome h3 { font-size: 18px; }
+      .conversation-inner { padding: 10px 12px 8px; gap: 10px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1724,6 +1762,28 @@
         statusLabel.textContent = '服务未连接';
       }
     }
+
+    /* ------------------------------------------------------------------ */
+    /*  Mobile Soft-keyboard Fix                                           */
+    /*  键盘弹起/收起时用 visualViewport 高度撑满布局，确保输入框不被遮挡 */
+    /* ------------------------------------------------------------------ */
+    (function mobileViewportFix() {
+      const appEl = $('.app');
+      const vv = window.visualViewport;
+      const mq = window.matchMedia('(max-width: 800px)');
+      if (!appEl || !vv) return;
+      const apply = () => {
+        if (mq.matches) {
+          appEl.style.height = `${Math.round(vv.height)}px`;
+        } else {
+          appEl.style.height = '';
+        }
+      };
+      vv.addEventListener('resize', apply);
+      vv.addEventListener('scroll', apply);
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', apply);
+      apply();
+    })();
 
     /* ------------------------------------------------------------------ */
     /*  Bootstrap                                                          */
