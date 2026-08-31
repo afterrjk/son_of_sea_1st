@@ -966,6 +966,27 @@
             <span class="nav-hint">突发情况处置</span>
           </span>
         </button>
+        <button class="nav-button" type="button" data-module="rights">
+          <i data-lucide="scale" aria-hidden="true"></i>
+          <span class="nav-text">
+            <span class="nav-name">权益服务</span>
+            <span class="nav-hint">工资与工伤维权</span>
+          </span>
+        </button>
+        <button class="nav-button" type="button" data-module="comfort">
+          <i data-lucide="heart-handshake" aria-hidden="true"></i>
+          <span class="nav-text">
+            <span class="nav-name">心理陪伴</span>
+            <span class="nav-hint">倾诉与情绪疏导</span>
+          </span>
+        </button>
+        <button class="nav-button" type="button" data-module="logistics">
+          <i data-lucide="warehouse" aria-hidden="true"></i>
+          <span class="nav-text">
+            <span class="nav-name">后勤保障</span>
+            <span class="nav-hint">食宿通勤与生活</span>
+          </span>
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -1093,6 +1114,33 @@
         placeholder: '例如：工友触电倒地，现场应该怎么办？',
         promptPrefix: '这是建筑工地突发情况。请优先判断持续危险，按时间顺序给出立即处置、呼救、现场保护和交接要点；不得建议无防护冒险施救：',
         quick: ['人员触电倒地', '发生高处坠落', '现场突然起火', '人员疑似中暑']
+      },
+      rights: {
+        icon: 'scale',
+        title: '权益服务',
+        subtitle: '工资、合同、工伤、社保等劳动权益咨询与维权指引',
+        welcome: '把您遇到的权益问题告诉我，比如工资拖欠、工伤赔偿、合同疑问，我会给出通俗的解答和维权步骤。',
+        placeholder: '例如：工资被拖欠两个月了怎么办？',
+        promptPrefix: '请作为劳动权益服务助手回答以下问题，给出通俗解释、具体步骤和维权渠道：',
+        quick: ['工资被拖欠怎么办？', '工伤了怎么申请赔偿？', '没签劳动合同有影响吗？', '加班费怎么算？']
+      },
+      comfort: {
+        icon: 'heart-handshake',
+        title: '心理陪伴',
+        subtitle: '倾诉心事、舒缓压力，这里有人愿意倾听',
+        welcome: '不管是想家、疲惫、压力大还是心里委屈，都可以和我说说。我会安静地听，陪你聊聊。',
+        placeholder: '想和我说点什么？',
+        promptPrefix: '请以温暖陪伴的方式回应工友的倾诉，先共情再给可操作的小方法：',
+        quick: ['想家了，心里难受', '干活太累压力很大', '和工友闹矛盾了', '晚上总是睡不好']
+      },
+      logistics: {
+        icon: 'warehouse',
+        title: '后勤保障',
+        subtitle: '宿舍、食堂、通勤、体检等工地生活服务指引',
+        welcome: '想问宿舍住宿、食堂饭菜、班车通勤、体检安排还是生活保障？尽管问我。',
+        placeholder: '例如：宿舍冬天太冷怎么办？',
+        promptPrefix: '请作为工地后勤生活服务助手回答以下问题，给出简洁清楚的指引：',
+        quick: ['宿舍暖气不热找谁？', '食堂饭菜有问题怎么反映？', '劳保用品哪里领？', '工友生病了怎么办？']
       }
     };
 
@@ -1464,10 +1512,22 @@
         </div>`;
     }
 
+    function renderTextAnswer(data, fallbackText) {
+      const text = (data && (data.answer || data.reply)) || fallbackText || '暂时没有收到有效回答。';
+      return `
+        <div class="result-box">
+          ${fallbackBanner(data)}
+          <div class="bubble" style="max-width:none">${renderMd(text)}</div>
+        </div>`;
+    }
+
     function renderStructured(moduleKey, data) {
       if (moduleKey === 'hazard') return renderHazardHtml(data);
       if (moduleKey === 'course') return renderLessonHtml(data);
       if (moduleKey === 'emergency') return renderEmergencyHtml(data);
+      if (moduleKey === 'rights') return renderTextAnswer(data, '权益咨询暂不可用，请稍后再试。');
+      if (moduleKey === 'comfort') return renderTextAnswer(data, '陪伴服务暂不可用，请稍后再试。');
+      if (moduleKey === 'logistics') return renderTextAnswer(data, '后勤咨询暂不可用，请稍后再试。');
       return renderMd(typeof data === 'string' ? data : JSON.stringify(data));
     }
 
@@ -1478,6 +1538,9 @@
       if (moduleKey === 'course') return { url: '/generate_lesson', body: { trade: workerSelect.value } };
       if (moduleKey === 'hazard') return { url: '/analyze_hazard', body: { description: cleanQ } };
       if (moduleKey === 'emergency') return { url: '/emergency', body: { situation: cleanQ } };
+      if (moduleKey === 'rights') return { url: '/rights', body: { question: cleanQ } };
+      if (moduleKey === 'comfort') return { url: '/comfort', body: { message: cleanQ } };
+      if (moduleKey === 'logistics') return { url: '/logistics', body: { question: cleanQ } };
       return null; // qa 走 /chat SSE
     }
 

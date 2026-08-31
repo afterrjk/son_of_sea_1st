@@ -1,9 +1,16 @@
-"""知识库检索模块 —— 基于 ChromaDB + sentence-transformers 的本地 RAG 检索。
+"""知识库检索模块 —— 本地 RAG 检索，双后端实现。
 
 提供：
-- init_knowledge_base()：从 JSON 文件加载知识条目并向量化存入 ChromaDB
+- init_knowledge_base()：从 JSON 文件加载知识条目并向量化存储
 - search()：根据用户查询检索最相关的知识条目
 - get_retrieval_context()：将检索结果格式化为可直接注入系统提示词的文本
+
+后端选择：
+- ChromaDB（Linux / Docker 环境默认，性能与扩展性更好）
+- 纯 numpy + JSON（Windows 环境自动回退，避免 ChromaDB hnswlib 在
+  Windows 上已知的内存访问崩溃问题）
+
+可通过环境变量 RAG_BACKEND=chromadb|numpy 强制指定后端。
 """
 
 from __future__ import annotations
@@ -13,19 +20,31 @@ import os
 from pathlib import Path
 from typing import TypedDict
 
-import chromadb
-from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 CHROMA_DIR = BASE_DIR / "data" / "chroma_db"
+NUMPY_STORE_DIR = BASE_DIR / "data" / "numpy_store"
 
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 # 优先使用随项目打包的本地模型目录，避免在离线/受限网络环境访问 HuggingFace
 LOCAL_MODEL_DIR = BASE_DIR / "models" / "all-MiniLM-L6-v2"
 COLLECTION_NAME = "zhuan_safety_knowledge"
+
+# Windows 上 ChromaDB 的 hnswlib 存在已知的 0xC0000005 崩溃缺陷，
+# 默认回退到纯 numpy 实现；Linux / Docker 继续使用 ChromaDB。
+_ENV_BACKEND = (os.getenv("RAG_BACKEND") or "").strip().lower()
+if _ENV_BACKEND == "chromadb":
+    _USE_CHROMADB = True
+elif _ENV_BACKEND == "numpy":
+    _USE_CHROMADB = False
+else:
+    _USE_CHROMADB = os.name != "nt"
+
+if _USE_CHROMADB:
+    import chromadb
+    from chromadb.config import Settings
 
 
 class RetrievalResult(TypedDict):
@@ -39,13 +58,106 @@ class RetrievalResult(TypedDict):
     score: float
 
 
+def _build_embedding_text(entry: dict) -> str:
+    """构造用于向量化的文本：标题 + 关键词 + 正文（截断以控制嵌入质量）。"""
+    kw_str = "，".join(entry.get("keywords", []))
+    content = entry.get("content", "")
+    return (
+        f"【{entry['category']}】{entry['title']}\n"
+        f"关键词：{kw_str}\n"
+        f"{content[:1500]}"
+    )
+
+
+class NumpyKnowledgeStore:
+    """基于 numpy + JSON 文件的轻量向量存储，替代 ChromaDB。
+
+    数据结构：
+    - numpy_store/index.json：全部知识条目的元数据（id/category/title/content/keywords）
+    - numpy_store/vectors.npy：与 index.json 顺序一致的嵌入向量矩阵 (N, dim)
+    """
+
+    def __init__(self, store_dir: Path) -> None:
+        self.store_dir = store_dir
+        self.index_path = store_dir / "index.json"
+        self.vectors_path = store_dir / "vectors.npy"
+        self._entries: list[dict] = []
+        self._vectors = None
+        self._load()
+
+    def _load(self) -> None:
+        if self.index_path.exists() and self.vectors_path.exists():
+            try:
+                with open(self.index_path, "r", encoding="utf-8") as f:
+                    self._entries = json.load(f)
+                import numpy as np
+
+                self._vectors = np.load(self.vectors_path)
+            except Exception:
+                self._entries = []
+                self._vectors = None
+
+    def count(self) -> int:
+        return len(self._entries)
+
+    def save(self, entries: list[dict], vectors) -> None:
+        import numpy as np
+
+        self.store_dir.mkdir(parents=True, exist_ok=True)
+        self._entries = entries
+        self._vectors = np.asarray(vectors, dtype=np.float32)
+        with open(self.index_path, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
+        np.save(self.vectors_path, self._vectors)
+
+    def query(
+        self, query_vector, top_k: int, category_filter: str | None = None
+    ) -> list[RetrievalResult]:
+        """余弦相似度检索，返回按相似度降序的结果。"""
+        import numpy as np
+
+        if self.count() == 0 or self._vectors is None:
+            return []
+
+        q = np.asarray(query_vector, dtype=np.float32).reshape(1, -1)
+        # 归一化后点积 = 余弦相似度
+        q_norm = q / (np.linalg.norm(q, axis=1, keepdims=True) + 1e-9)
+        mat_norm = self._vectors / (
+            np.linalg.norm(self._vectors, axis=1, keepdims=True) + 1e-9
+        )
+        scores = mat_norm @ q_norm.T
+        scores = scores.ravel()
+
+        idxs = np.argsort(scores)[::-1]
+        results: list[RetrievalResult] = []
+        for i in idxs:
+            if len(results) >= top_k:
+                break
+            entry = self._entries[i]
+            if category_filter and entry.get("category") != category_filter:
+                continue
+            results.append(
+                {
+                    "id": entry["id"],
+                    "category": entry.get("category", ""),
+                    "title": entry.get("title", ""),
+                    "content": entry.get("content", ""),
+                    "keywords": entry.get("keywords", []),
+                    "score": round(float(scores[i]), 4),
+                }
+            )
+        return results
+
+
 class KnowledgeRetriever:
-    """ChromaDB 知识库检索器，封装向量化、存储和查询功能。"""
+    """知识库检索器，封装向量化、存储和查询功能（支持 ChromaDB / numpy 双后端）。"""
 
     def __init__(self) -> None:
         self._embedding_model: SentenceTransformer | None = None
-        self._chroma_client: chromadb.PersistentClient | None = None
-        self._collection: chromadb.Collection | None = None
+        self._chroma_client = None
+        self._collection = None
+        self._numpy_store: NumpyKnowledgeStore | None = None
+        self.backend = "chromadb" if _USE_CHROMADB else "numpy"
 
     @property
     def embedding_model(self) -> SentenceTransformer:
@@ -58,7 +170,7 @@ class KnowledgeRetriever:
         return self._embedding_model
 
     @property
-    def chroma_client(self) -> chromadb.PersistentClient:
+    def chroma_client(self):
         if self._chroma_client is None:
             os.makedirs(str(CHROMA_DIR), exist_ok=True)
             self._chroma_client = chromadb.PersistentClient(
@@ -68,7 +180,7 @@ class KnowledgeRetriever:
         return self._chroma_client
 
     @property
-    def collection(self) -> chromadb.Collection:
+    def collection(self):
         if self._collection is None:
             self._collection = self.chroma_client.get_or_create_collection(
                 name=COLLECTION_NAME,
@@ -76,15 +188,23 @@ class KnowledgeRetriever:
             )
         return self._collection
 
+    @property
+    def numpy_store(self) -> NumpyKnowledgeStore:
+        if self._numpy_store is None:
+            self._numpy_store = NumpyKnowledgeStore(NUMPY_STORE_DIR)
+        return self._numpy_store
+
     def is_initialized(self) -> bool:
         """检查知识库是否已经完成向量化入库。"""
-        try:
-            return self.collection.count() > 0
-        except Exception:
-            return False
+        if self.backend == "chromadb":
+            try:
+                return self.collection.count() > 0
+            except Exception:
+                return False
+        return self.numpy_store.count() > 0
 
     def init_from_json(self, json_path: str | None = None) -> int:
-        """从 JSON 文件加载知识条目，逐条向量化并存入 ChromaDB。
+        """从 JSON 文件加载知识条目，逐条向量化并存入后端存储。
 
         Args:
             json_path: 知识库 JSON 文件路径，默认使用 data/knowledge_base.json
@@ -101,58 +221,61 @@ class KnowledgeRetriever:
         if not entries:
             return 0
 
-        ids = [entry["id"] for entry in entries]
+        texts = [_build_embedding_text(entry) for entry in entries]
 
-        # 构造用于向量化的文本：标题 + 关键词 + 正文（截断以控制嵌入质量）
-        texts: list[str] = []
-        for entry in entries:
-            kw_str = "，".join(entry.get("keywords", []))
-            content = entry.get("content", "")
-            texts.append(
-                f"【{entry['category']}】{entry['title']}\n"
-                f"关键词：{kw_str}\n"
-                f"{content[:1500]}"
-            )
-
-        # 生成向量并批量入库
+        # 生成向量
         embeddings = self.embedding_model.encode(
             texts, show_progress_bar=True, convert_to_numpy=True
-        ).tolist()
+        )
 
-        metadatas = [
+        if self.backend == "chromadb":
+            ids = [entry["id"] for entry in entries]
+            metadatas = [
+                {
+                    "category": entry["category"],
+                    "title": entry["title"],
+                    "keywords": ", ".join(entry.get("keywords", [])),
+                }
+                for entry in entries
+            ]
+            documents = [entry["content"] for entry in entries]
+
+            # 先清空旧数据再写入
+            try:
+                self.chroma_client.delete_collection(COLLECTION_NAME)
+            except Exception:
+                pass
+
+            self._collection = self.chroma_client.create_collection(
+                name=COLLECTION_NAME,
+                metadata={"description": "筑安建筑安全知识库"},
+            )
+
+            batch_size = 10
+            total = len(entries)
+            for i in range(0, total, batch_size):
+                batch_slice = slice(i, i + batch_size)
+                self.collection.add(
+                    ids=ids[batch_slice],
+                    embeddings=embeddings[batch_slice].tolist(),
+                    metadatas=metadatas[batch_slice],
+                    documents=documents[batch_slice],
+                )
+            return total
+
+        # numpy 后端：直接保存条目与向量
+        store_entries = [
             {
+                "id": entry["id"],
                 "category": entry["category"],
                 "title": entry["title"],
-                "keywords": ", ".join(entry.get("keywords", [])),
+                "content": entry["content"],
+                "keywords": entry.get("keywords", []),
             }
             for entry in entries
         ]
-
-        documents = [entry["content"] for entry in entries]
-
-        # 先清空旧数据再写入
-        try:
-            self.chroma_client.delete_collection(COLLECTION_NAME)
-        except Exception:
-            pass
-
-        self._collection = self.chroma_client.create_collection(
-            name=COLLECTION_NAME,
-            metadata={"description": "筑安建筑安全知识库"},
-        )
-
-        batch_size = 10
-        total = len(entries)
-        for i in range(0, total, batch_size):
-            batch_slice = slice(i, i + batch_size)
-            self.collection.add(
-                ids=ids[batch_slice],
-                embeddings=embeddings[batch_slice],
-                metadatas=metadatas[batch_slice],
-                documents=documents[batch_slice],
-            )
-
-        return total
+        self.numpy_store.save(store_entries, embeddings)
+        return len(entries)
 
     def search(self, query: str, top_k: int = 5) -> list[RetrievalResult]:
         """根据用户问题检索最相关的知识条目。
@@ -169,42 +292,47 @@ class KnowledgeRetriever:
 
         query_embedding = self.embedding_model.encode(
             [query], show_progress_bar=False, convert_to_numpy=True
-        ).tolist()
-
-        results = self.collection.query(
-            query_embeddings=query_embedding,
-            n_results=min(top_k, self.collection.count()),
-            include=["documents", "metadatas", "distances"],
         )
 
-        output: list[RetrievalResult] = []
-        if not results["ids"] or not results["ids"][0]:
-            return output
-
-        for i, doc_id in enumerate(results["ids"][0]):
-            metadata = results["metadatas"][0][i] if results["metadatas"] else {}
-            document = results["documents"][0][i] if results["documents"] else ""
-            distance = results["distances"][0][i] if results["distances"] else 0.0
-
-            # ChromaDB 返回的是余弦距离，转换为相似度分数 (0~1)
-            # cosine_similarity = 1 - cosine_distance
-            similarity = max(0.0, min(1.0, 1.0 - distance))
-
-            keywords_raw = metadata.get("keywords", "")
-            keywords = [kw.strip() for kw in keywords_raw.split(",") if kw.strip()] if keywords_raw else []
-
-            output.append(
-                {
-                    "id": doc_id,
-                    "category": metadata.get("category", ""),
-                    "title": metadata.get("title", ""),
-                    "content": document,
-                    "keywords": keywords,
-                    "score": round(similarity, 4),
-                }
+        if self.backend == "chromadb":
+            results = self.collection.query(
+                query_embeddings=query_embedding.tolist(),
+                n_results=min(top_k, self.collection.count()),
+                include=["documents", "metadatas", "distances"],
             )
 
-        return output
+            output: list[RetrievalResult] = []
+            if not results["ids"] or not results["ids"][0]:
+                return output
+
+            for i, doc_id in enumerate(results["ids"][0]):
+                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                document = results["documents"][0][i] if results["documents"] else ""
+                distance = results["distances"][0][i] if results["distances"] else 0.0
+
+                # ChromaDB 返回的是余弦距离，转换为相似度分数 (0~1)
+                similarity = max(0.0, min(1.0, 1.0 - distance))
+
+                keywords_raw = metadata.get("keywords", "")
+                keywords = (
+                    [kw.strip() for kw in keywords_raw.split(",") if kw.strip()]
+                    if keywords_raw
+                    else []
+                )
+
+                output.append(
+                    {
+                        "id": doc_id,
+                        "category": metadata.get("category", ""),
+                        "title": metadata.get("title", ""),
+                        "content": document,
+                        "keywords": keywords,
+                        "score": round(similarity, 4),
+                    }
+                )
+            return output
+
+        return self.numpy_store.query(query_embedding, top_k=top_k)
 
     def format_context(self, results: list[RetrievalResult]) -> str:
         """将检索结果格式化为可直接注入系统提示词的文本块。
@@ -259,12 +387,17 @@ def search_knowledge(
     if not retriever.is_initialized():
         return []
 
-    # 构建查询向量
+    if retriever.backend == "numpy":
+        query_embedding = retriever.embedding_model.encode(
+            [query], show_progress_bar=False, convert_to_numpy=True
+        )
+        return retriever.numpy_store.query(query_embedding, top_k=top_k, category_filter=category_filter)
+
+    # ChromaDB 后端
     query_embedding = retriever.embedding_model.encode(
         [query], show_progress_bar=False, convert_to_numpy=True
     ).tolist()
 
-    # 构建 ChromaDB where 过滤条件
     where_filter = None
     if category_filter:
         where_filter = {"category": category_filter}

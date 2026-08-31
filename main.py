@@ -123,6 +123,51 @@ EMERGENCY_RESPONSE_PROMPT = """你是一名建筑工地应急救援指导员。�
   "disclaimer": "本指南仅供紧急参考，必须以现场安全员和医疗专业人员指导为准。"
 }}"""
 
+RIGHTS_PROMPT = """你是"筑安"劳动权益助手，服务建筑工地一线产业工人。
+工友可能会咨询工资拖欠、工伤保险、劳动合同、加班费、社保缴纳、欠薪维权、劳务纠纷等问题。
+回答要求：
+1. 用通俗中文，避免生硬法律术语，必要时用大白话解释；
+2. 先讲清"是什么/是否合法"，再给"怎么做"的具体步骤；
+3. 给出维权渠道时尽量具体：如项目部/劳务公司沟通、项目所在地劳动保障监察大队、12333人社热线、12345政务服务热线、工会等；
+4. 提醒保留证据：劳动合同、考勤记录、工资条、微信聊天记录、转账记录等；
+5. 结尾注明"以上为一般性信息参考，不构成法律意见，重大纠纷建议咨询专业律师或当地工会/劳动监察部门"。
+6. 信息不足时，先询问关键情况（如是否签合同、拖欠多久、金额多少），不要臆测。
+
+用户咨询内容：
+{question}
+
+请以结构清晰、分点的方式回答。"""
+
+COMFORT_PROMPT = """你是"筑安"工地暖心陪伴助手，一个温暖、真诚、耐心的倾听者。
+建筑工人群体常面临离家思乡、工作疲惫、压力大、孤独、担忧家庭、人际关系困扰、情绪低落等情况。
+回答要求：
+1. 先共情、理解和接纳对方的情绪，语气温暖亲切，不说教、不评判；
+2. 用1-2个问题或回应让对方感到被看见、被尊重；
+3. 提供一些简单可操作的情绪调节小方法（如深呼吸、和工友聊聊、给家里打个电话、记录三件小确幸等）；
+4. 如果需要，可以鼓励对方向身边信任的人倾诉，或联系项目工会、心理援助热线（如12356全国心理援助热线）；
+5. 如果对方表达出自伤、自残或伤害他人的危险想法，必须认真对待，明确建议立即联系专业人员或拨打120/110，并告知这是紧急情况；
+6. 保持适度篇幅，真诚自然，不要过于机械或模板化。
+
+工友的倾诉：
+{message}
+
+请以温暖的口吻回应。"""
+
+LOGISTICS_PROMPT = """你是"筑安"工地生活服务助手，为一线产业工人提供工地后勤生活保障信息。
+可以解答的问题包括：宿舍住宿、食堂用餐、通勤班车、工装劳保用品领取、体检安排、防暑防寒保障、
+饮水休息点、医疗点位置、证件办理（如实名制入场、银行卡）、手机充电与网络、节假日安排等。
+回答要求：
+1. 用通俗中文，简洁清楚，先说结论再给细节；
+2. 具体地点、时间、流程等项目部有明确规定时，提示"以项目部/班组通知为准"；
+3. 给出"找不到人/不清楚找谁"时的兜底建议（如找班组长、项目综合办、安全员）；
+4. 涉及健康或安全的事项（如中暑、受伤）要提示及时就医和报告；
+5. 信息不足时，先询问是哪个环节/哪类生活需求，再给出通用指引。
+
+工友的问题：
+{question}
+
+请以分点、清晰的方式回答。"""
+
 # ---------------------------------------------------------------------------
 # 数据模型
 # ---------------------------------------------------------------------------
@@ -156,6 +201,27 @@ class EmergencyRequest(BaseModel):
     situation: str = Field(
         min_length=1, max_length=2_000,
         description="紧急情况描述，如'有人中暑了'",
+    )
+
+
+class RightsRequest(BaseModel):
+    question: str = Field(
+        min_length=1, max_length=2_000,
+        description="劳动权益咨询问题，如'工资被拖欠两个月怎么办'",
+    )
+
+
+class ComfortRequest(BaseModel):
+    message: str = Field(
+        min_length=1, max_length=2_000,
+        description="工友倾诉或情绪表达的内容",
+    )
+
+
+class LogisticsRequest(BaseModel):
+    question: str = Field(
+        min_length=1, max_length=2_000,
+        description="工地后勤生活问题，如'宿舍冬天太冷怎么办'",
     )
 
 
@@ -554,6 +620,128 @@ async def emergency(request: EmergencyRequest) -> JSONResponse:
         )
     except Exception as exc:
         logger.exception(f"/emergency 未知错误")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "服务暂时不可用，请稍后重试"},
+        )
+
+# ===================================================================
+# 接口五：劳动权益咨询 /rights
+# ===================================================================
+
+@app.post("/rights")
+async def rights(request: RightsRequest) -> JSONResponse:
+    """解答工友劳动权益问题：工资、合同、工伤、社保、维权渠道等。"""
+    try:
+        # 权益类问题主要依赖常识与政策口径，不强依赖知识库检索
+        system_prompt = RIGHTS_PROMPT.format(question=request.question)
+        response = await _call_deepseek_nonstream(
+            system_prompt=system_prompt,
+            user_message=request.question,
+            max_tokens=2048,
+        )
+        return JSONResponse(content={"answer": response})
+
+    except DeepSeekAPIError as exc:
+        logger.error(f"/rights DeepSeek 错误：{exc}")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "fallback": True,
+                "error": str(exc),
+                "answer": (
+                    "AI服务暂时不可用，请先参考以下通用步骤：\n\n"
+                    "1. 整理证据：劳动合同、考勤记录、工资条、微信/银行转账记录等；\n"
+                    "2. 先与班组长、劳务公司或项目部沟通核实；\n"
+                    "3. 无法解决时拨打 **12333**（人社热线）或 **12345**（政务服务热线）反映；\n"
+                    "4. 向项目所在地的劳动保障监察大队投诉，或联系工会组织；\n"
+                    "5. 涉及工伤，务必保留就医记录并及时申请工伤认定。\n\n"
+                    "以上为一般性信息参考，不构成法律意见，建议咨询专业律师或当地劳动监察部门。"
+                ),
+            },
+        )
+    except Exception as exc:
+        logger.exception(f"/rights 未知错误")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "服务暂时不可用，请稍后重试"},
+        )
+
+# ===================================================================
+# 接口六：心理陪伴 /comfort
+# ===================================================================
+
+@app.post("/comfort")
+async def comfort(request: ComfortRequest) -> JSONResponse:
+    """为工友提供温暖陪伴与情绪疏导。"""
+    try:
+        system_prompt = COMFORT_PROMPT.format(message=request.message)
+        response = await _call_deepseek_nonstream(
+            system_prompt=system_prompt,
+            user_message=request.message,
+            max_tokens=1024,
+        )
+        return JSONResponse(content={"reply": response})
+
+    except DeepSeekAPIError as exc:
+        logger.error(f"/comfort DeepSeek 错误：{exc}")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "fallback": True,
+                "error": str(exc),
+                "reply": (
+                    "谢谢你愿意和我分享。出门在外打工不容易，想家、累、委屈都是正常的，\n"
+                    "你的感受值得被认真对待。可以先停下来喝口水、深呼吸几次，\n"
+                    "如果方便，给家人打个电话，或者和信得过的工友聊聊。\n\n"
+                    "如果觉得情绪一直压着，也可以联系项目工会，或拨打 **12356** 心理援助热线，\n"
+                    "那里有专业人员愿意倾听。你并不孤单。"
+                ),
+            },
+        )
+    except Exception as exc:
+        logger.exception(f"/comfort 未知错误")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "服务暂时不可用，请稍后重试"},
+        )
+
+# ===================================================================
+# 接口七：后勤保障 /logistics
+# ===================================================================
+
+@app.post("/logistics")
+async def logistics(request: LogisticsRequest) -> JSONResponse:
+    """解答工地后勤生活保障问题：住宿、食堂、通勤、体检等。"""
+    try:
+        system_prompt = LOGISTICS_PROMPT.format(question=request.question)
+        response = await _call_deepseek_nonstream(
+            system_prompt=system_prompt,
+            user_message=request.question,
+            max_tokens=1536,
+        )
+        return JSONResponse(content={"answer": response})
+
+    except DeepSeekAPIError as exc:
+        logger.error(f"/logistics DeepSeek 错误：{exc}")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "fallback": True,
+                "error": str(exc),
+                "answer": (
+                    "AI服务暂时不可用，请先参考以下通用指引：\n\n"
+                    "1. **住宿问题**：先向班组长或项目综合办公室反映，说明具体问题（如暖气、漏水、卫生）；\n"
+                    "2. **食堂问题**：对饭菜质量或价格有意见，可向项目部后勤负责人反馈，或通过职工代表/工会提出；\n"
+                    "3. **通勤班车**：班次与路线以项目部通知为准，具体可问班组长；\n"
+                    "4. **劳保用品**：按规定领用安全帽、工装等，不足时向班组长申领；\n"
+                    "5. **身体不适**：及时到项目医务室/附近医院就诊，并向班组长报备。\n\n"
+                    "具体安排以项目部通知为准。"
+                ),
+            },
+        )
+    except Exception as exc:
+        logger.exception(f"/logistics 未知错误")
         return JSONResponse(
             status_code=500,
             content={"error": "服务暂时不可用，请稍后重试"},
